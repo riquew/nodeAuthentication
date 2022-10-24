@@ -9,10 +9,7 @@ const passportLocalMongoose = require('passport-local-mongoose');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const FacebookStrategy = require('passport-facebook').Strategy;
 const findOrCreate = require('mongoose-findorcreate');
-// const encrypt = require('mongoose-encryption');
-// const md5 = require('md5');
-// const bcrypt = require('bcrypt');
-// const saltRounds = 10;
+
 
 const secret = process.env.SECRET;
 
@@ -38,10 +35,16 @@ const userSchema = new mongoose.Schema({
     facebookId: String
 });
 
+const postSchema = new mongoose.Schema({
+    userId: String,
+    postContent: String
+})
+
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
 
 const User = mongoose.model('User', userSchema);
+const Post = mongoose.model('Post', postSchema);
 
 passport.use(User.createStrategy());
 passport.serializeUser(function(user, done) {
@@ -72,8 +75,8 @@ passport.use(new FacebookStrategy({
     callbackURL: "http://localhost:3000/auth/facebook/secrets"
   },
   function(accessToken, refreshToken, profile, cb) {
-    console.log(profile._json.id)
-    User.findOrCreate({ facebookId: profile._json.id }, function (err, user) {
+    console.log(profile)
+    User.findOrCreate({ facebookId: profile.id }, function (err, user) {
       return cb(err, user);
     });
   }
@@ -82,7 +85,6 @@ passport.use(new FacebookStrategy({
 
 app.get('/', (req, res)=> {
     res.render('home');
-    console.log(req.user) // log if user is authenticated
 });
 
 app.get('/auth/google', 
@@ -134,7 +136,6 @@ app.route('/register')
 
         User.register({username: req.body.username}, req.body.password, function(err, user) {
             if(err) {
-                console.log(err);
                 res.redirect('/register');
             } else {
                 passport.authenticate('local') (req, res, function() {
@@ -144,9 +145,10 @@ app.route('/register')
         });
     })
 
-app.get('/secrets', function(req, res) {
+app.get('/secrets', async function(req, res) {
     if(req.isAuthenticated()){
-        res.render('secrets');
+        const userSecrets = await Post.find({userId: req.user._id})
+        res.render('secrets', {userSecrets:userSecrets});
     } else {
         res.redirect('/login');
     }
@@ -156,21 +158,25 @@ app.route('/submit')
     .get(function(req, res) {
         if(req.isAuthenticated()) {
             res.render('submit');
+        } else {
+            res.redirect('/login')
         }
     })
-    .post(passport.authenticate('local'), async function(req, res) {
-        passport.authenticate('local')(req, res, function() {
-        res.redirect('/secrets');
-    })
+    .post(async function(req, res) {
+        const newPost = new Post({
+            userId: req.user._id,
+            postContent: req.body.secret
+        })
+        try {
+            await newPost.save();
+            res.redirect('/secrets');
+        } catch {
+            res.send(error);
+        }
+        
 });
 
 
 app.listen(port, function() {
     console.log(`Server started on port ${port}`);
 });
-
-// .post(passport.authenticate('local'), async function(req, res) {
-//     passport.authenticate('local')(req, res, function() {
-//     res.redirect('/secrets');
-
-// })
